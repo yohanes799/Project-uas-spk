@@ -46,7 +46,7 @@ const Results: React.FC<ResultsProps> = ({
 
       {/* Top 3 Podium */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {sawResult.rankings.slice(0, 3).map((entry) => (
+        {sawResult.rankings.slice(0, 2).map((entry) => (
           <div
             key={entry.alternativeId}
             className={`rounded-2xl border-2 p-5 text-center transition hover:shadow-md
