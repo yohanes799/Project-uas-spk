@@ -1,5 +1,7 @@
-import React from 'react';
-import type { Alternative, Criterion, CriterionConfig } from '../types';
+// Ganti bagian import Anda dengan ini:
+import { useState, useEffect } from 'react'; // Gabungkan useState dan useEffect
+import api from '../utils/api'; // Pastikan path ini benar (sesuaikan dengan lokasi file api.ts Anda)
+import type { AHPResult, Alternative, Criterion, CriterionConfig, SAWResult } from '../types';
 
 interface AlternativesInputProps {
   criteria: Criterion[];
@@ -8,6 +10,8 @@ interface AlternativesInputProps {
   onAlternativesChange: (alts: Alternative[]) => void;
   onBack: () => void;
   onNext: () => void;
+  setAhpResult: (result: AHPResult) => void;
+  setSawResult: (result: SAWResult) => void;
 }
 
 const CRITERION_OPTIONS: Record<string, Array<{ label: string; value: number }>> = {
@@ -37,7 +41,7 @@ const inputCls = "w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm t
 const selectCls = "w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer transition";
 
 const AlternativesInput: React.FC<AlternativesInputProps> = ({
-  criteria, criteriaConfig, alternatives, onAlternativesChange, onBack, onNext,
+  criteria, criteriaConfig, alternatives, onAlternativesChange, onBack, onNext, setAhpResult, setSawResult
 }) => {
   const addAlternative = () => {
     const newId = `A${alternatives.length + 1}`;
@@ -46,9 +50,23 @@ const AlternativesInput: React.FC<AlternativesInputProps> = ({
     onAlternativesChange([...alternatives, { id: newId, name: '', values }]);
   };
 
-  const removeAlternative = (id: string) => {
-    if (alternatives.length <= 2) { alert('Minimal harus ada 2 alternatif.'); return; }
-    onAlternativesChange(alternatives.filter((a) => a.id !== id));
+  const removeAlternative = async (id: string) => {
+    if (alternatives.length <= 2) { 
+      alert('Minimal harus ada 2 alternatif.'); 
+      return; 
+    }
+    
+    // 1. Kirim perintah eksekusi ke database
+    try {
+      // Sesuaikan URL ini jika baseURL api Anda tidak menyertakan '/api'
+      await api.delete(`/alternatif/${id}`); 
+      
+      // 2. Jika database sukses menghapus, baru kita hilangkan dari layar (UI)
+      onAlternativesChange(alternatives.filter((a) => a.id !== id));
+    } catch (error) {
+      console.error("Gagal menghapus peserta:", error);
+      alert("Gagal menghapus data secara permanen dari server.");
+    }
   };
 
   const updateName = (id: string, name: string) =>
@@ -62,12 +80,32 @@ const AlternativesInput: React.FC<AlternativesInputProps> = ({
     );
   };
 
-  const canProceed =
+  // Ubah bagian canProceed Anda menjadi seperti ini:
+const canProceed =
     alternatives.length >= 2 &&
     alternatives.every((a) =>
-      a.name.trim() !== '' &&
-      criteria.every((c) => a.values[c.id] !== undefined && !isNaN(a.values[c.id]))
+      (a.name || '').trim() !== '' &&
+      criteria.every((c) => {
+        // Jika nilai dari database belum ada (undefined), kita anggap default 0
+        const val = a.values?.[c.id] ?? 0; 
+        return !isNaN(val);
+      })
     );
+
+const handleNext = async () => {
+  try {
+    await api.post('/penilaian', { alternatives }); 
+    const response = await api.get('/saw'); 
+    
+    // Simpan langsung apa adanya dari backend
+    setSawResult({ rankings: response.data.data }); 
+    
+    onNext();
+  } catch (error) {
+    console.error("Gagal:", error);
+    alert("Gagal memproses data.");
+  }
+};
 
   return (
     <div className="p-8 flex flex-col gap-6">
@@ -188,13 +226,14 @@ const AlternativesInput: React.FC<AlternativesInputProps> = ({
         <button onClick={onBack} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
           ← Kembali
         </button>
-        <button
-          onClick={onNext}
-          disabled={!canProceed}
-          className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition"
-        >
-          Hitung Hasil →
-        </button>
+        {/* Ubah onClick={onNext} menjadi onClick={handleNext} */}
+<button
+  onClick={handleNext}
+  disabled={!canProceed}
+  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition"
+>
+  Hitung Hasil →
+</button>
       </div>
 
       {!canProceed && (

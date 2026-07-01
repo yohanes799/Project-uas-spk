@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { AHPPairwiseMatrix, AHPResult, Criterion } from '../types';
 import { updateMatrixSymmetric } from '../utils/ahp';
+import api from '../utils/api';
 
 interface AHPMatrixProps {
   criteria: Criterion[];
@@ -46,13 +47,91 @@ const selectCls = "w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs 
 const AHPMatrix: React.FC<AHPMatrixProps> = ({
   criteria, matrix, ahpResult, onMatrixChange, onBack, onNext,
 }) => {
-  const handleUpper = (rowId: string, colId: string, value: number) => {
-    onMatrixChange(updateMatrixSymmetric(matrix, rowId, colId, value));
+
+  // 1. FUNGSI UNTUK MENGAMBIL DATA DARI DATABASE SAAT HALAMAN DIMUAT
+  useEffect(() => {
+    const loadMatrixFromDB = async () => {
+      try {
+        const response = await api.get('/ahp_matriks');
+        const dbData = response.data.data;
+        
+        if (dbData && dbData.length > 0) {
+          // Buat salinan dari matriks default yang sudah ada
+          let loadedMatrix = structuredClone(matrix);
+          
+          // Timpa nilainya dengan data dari database
+          dbData.forEach((item: any) => {
+            if (loadedMatrix[item.kriteria_id_1] && loadedMatrix[item.kriteria_id_1][item.kriteria_id_2] !== undefined) {
+              loadedMatrix[item.kriteria_id_1][item.kriteria_id_2] = item.nilai_perbandingan;
+              
+              // Isi otomatis nilai resiprokal/kebalikannya
+              if (item.kriteria_id_1 !== item.kriteria_id_2) {
+                loadedMatrix[item.kriteria_id_2][item.kriteria_id_1] = 1 / item.nilai_perbandingan;
+              }
+            }
+          });
+          
+          // Perbarui tampilan antarmuka
+          onMatrixChange(loadedMatrix);
+        }
+      } catch (error) {
+        console.error("Gagal memuat matriks dari database:", error);
+      }
+    };
+
+    // Panggil fungsi saat komponen pertama kali di-render
+    if (criteria.length > 0) {
+      loadMatrixFromDB();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Array kosong berarti hanya dijalankan 1x saat load
+
+
+  // 2. UPDATE FUNGSI INI UNTUK MENYIMPAN KE DATABASE
+  const handleCellChange = async (rowId: string, colId: string, value: number) => {
+    // Update antarmuka secara instan (agar tidak ada jeda loading)
+    const updatedMatrix = updateMatrixSymmetric(matrix, rowId, colId, value);
+    onMatrixChange(updatedMatrix);
+
+    // Kirim data ke database secara background
+    try {
+      await api.post('/ahp_matriks', {
+        kriteria_id_1: rowId,
+        kriteria_id_2: colId,
+        nilai_perbandingan: value
+      });
+    } catch (error) {
+      console.error("Gagal menyimpan ke database:", error);
+      alert("Gagal menyimpan perubahan ke server.");
+    }
   };
 
-  const handleLower = (rowId: string, colId: string, value: number) => {
-    // lower triangle: rowId > colId. Setting upper [colId][rowId] = value → lower = 1/value auto
-    onMatrixChange(updateMatrixSymmetric(matrix, colId, rowId, value));
+  // Tambahkan fungsi ini di dalam komponen AHPMatrix
+  const handleNext = async () => {
+    // 1. Ambil daftar kode kriteria (C1, C2, dst) secara berurutan
+    const kodes = criteria.map(c => c.id);
+    
+    // 2. Ubah format matrix (objek) di React menjadi Array 2D untuk backend
+    // Contoh hasil: [[1, 3, 5], [0.33, 1, 2], ...]
+    const dataMatriksArray = kodes.map(rowId => {
+      return kodes.map(colId => {
+        return matrix[rowId]?.[colId] ?? 1;
+      });
+    });
+
+    try {
+      // 3. Kirim matriks dan urutan kode ke backend
+      await api.post('/ahp', {
+        matriks: dataMatriksArray,
+        kriteria_kodes: kodes
+      });
+      
+      // 4. Jika sukses tersimpan di database, baru pindah halaman
+      onNext();
+    } catch (error) {
+      console.error("Gagal menyimpan bobot AHP:", error);
+      alert("Gagal menyimpan perhitungan ke server. Silakan coba lagi.");
+    }
   };
 
   return (
@@ -93,7 +172,6 @@ const AHPMatrix: React.FC<AHPMatrixProps> = ({
                 {criteria.map((colCrit, colIdx) => {
                   const isDiag = rowCrit.id === colCrit.id;
                   const isUpper = rowIdx < colIdx;
-                  const upperVal = matrix[colCrit.id]?.[rowCrit.id] ?? 1;
                   const cellVal = matrix[rowCrit.id]?.[colCrit.id] ?? 1;
 
                   if (isDiag) {
@@ -104,39 +182,41 @@ const AHPMatrix: React.FC<AHPMatrixProps> = ({
                     );
                   }
 
-                  if (isUpper) {
-                    return (
-                      <td key={colCrit.id} className="px-3 py-3">
-                        <select
-                          value={findClosestSaaty(cellVal)}
-                          onChange={(e) => handleUpper(rowCrit.id, colCrit.id, parseFloat(e.target.value))}
-                          className={selectCls}
-                          aria-label={`${rowCrit.name} vs ${colCrit.name}`}
-                        >
-                          {SAATY_VALUES.map((opt) => (
-                            <option key={opt.label} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
-                      </td>
-                    );
-                  }
+                  {/* UPPER TRIANGLE */}
+if (isUpper) {
+  return (
+    <td key={colCrit.id} className="px-3 py-3">
+      <select
+        value={findClosestSaaty(cellVal)}
+        // Panggil fungsi handleCellChange, TIDAK PERLU tukar ID
+        onChange={(e) => handleCellChange(rowCrit.id, colCrit.id, parseFloat(e.target.value))}
+        className={selectCls}
+      >
+        {SAATY_VALUES.map((opt) => (
+          <option key={opt.label} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </td>
+  );
+}
 
-                  // Lower triangle
-                  return (
-                    <td key={colCrit.id} className="px-3 py-3 bg-slate-50">
-                      <select
-                        value={findClosestSaaty(upperVal)}
-                        onChange={(e) => handleLower(rowCrit.id, colCrit.id, parseFloat(e.target.value))}
-                        className={`${selectCls} opacity-70 bg-slate-50`}
-                        aria-label={`${rowCrit.name} vs ${colCrit.name} (reciprocal)`}
-                      >
-                        {SAATY_VALUES.map((opt) => (
-                          <option key={opt.label} value={opt.value}>{opt.label}</option>
-                        ))}
-                      </select>
-                      <span className="block text-center text-[10px] text-gray-400 mt-0.5">reciprocal</span>
-                    </td>
-                  );
+{/* LOWER TRIANGLE */}
+// Lower triangle
+return (
+  <td key={colCrit.id} className="px-3 py-3 bg-slate-50">
+    <select
+      value={findClosestSaaty(cellVal)} 
+      // Panggil fungsi handleCellChange, TIDAK PERLU tukar ID
+      onChange={(e) => handleCellChange(rowCrit.id, colCrit.id, parseFloat(e.target.value))}
+      className={`${selectCls} opacity-70 bg-slate-50`}
+    >
+      {SAATY_VALUES.map((opt) => (
+        <option key={opt.label} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+    <span className="block text-center text-[10px] text-gray-400 mt-0.5">reciprocal</span>
+  </td>
+);
                 })}
               </tr>
             ))}
@@ -200,9 +280,9 @@ const AHPMatrix: React.FC<AHPMatrixProps> = ({
         <button onClick={onBack} className="px-5 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition">
           ← Kembali
         </button>
-        <button onClick={onNext} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition">
-          Lanjut ke Data Alternatif →
-        </button>
+        <button onClick={handleNext} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition">
+  Lanjut ke Data Alternatif →
+</button>
       </div>
 
       {ahpResult && !ahpResult.isConsistent && (

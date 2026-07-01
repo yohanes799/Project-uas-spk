@@ -14,29 +14,35 @@ export function calculateSAW(
   const altIds = alternatives.map((a) => a.id);
   const critIds = criteriaConfigs.map((c) => c.id);
 
-  // Step 1: Find max and min for each criterion
+// Step 1: Find max and min for each criterion (Paksa menjadi angka)
   const maxValues: Record<string, number> = {};
   const minValues: Record<string, number> = {};
 
   for (const critId of critIds) {
-    const vals = alternatives.map((a) => a.values[critId] ?? 0);
+    // Paksa konversi ke Number agar Math.max/min tidak hancur oleh string
+    const vals = alternatives.map((a) => Number(a.values[critId]) || 0);
     maxValues[critId] = Math.max(...vals);
     minValues[critId] = Math.min(...vals);
   }
 
-  // Step 2: Normalize the decision matrix
+  // Step 2: Normalize the decision matrix (Logika Anti-Jebakan)
   const normalizedMatrix: Record<string, Record<string, number>> = {};
 
   for (const alt of alternatives) {
     normalizedMatrix[alt.id] = {};
     for (const crit of criteriaConfigs) {
-      const val = alt.values[crit.id] ?? 0;
-      if (crit.type === 'benefit') {
-        // benefit: r = x / max(x)
+      const val = Number(alt.values[crit.id]) || 0;
+      
+      // BENTENG PERTAHANAN: Bersihkan teks dari huruf besar & spasi.
+      // Jika kosong/salah, defaultkan sebagai 'benefit'.
+      const isCost = String(crit.type).toLowerCase().trim() === 'cost';
+
+      if (!isCost) {
+        // BENEFIT (Default): r = x / max(x)
         normalizedMatrix[alt.id][crit.id] =
           maxValues[crit.id] === 0 ? 0 : val / maxValues[crit.id];
       } else {
-        // cost: r = min(x) / x
+        // COST: r = min(x) / x
         normalizedMatrix[alt.id][crit.id] =
           val === 0 ? 0 : minValues[crit.id] / val;
       }
@@ -47,7 +53,8 @@ export function calculateSAW(
   const preferenceValues: Record<string, number> = {};
   for (const altId of altIds) {
     preferenceValues[altId] = critIds.reduce((sum, critId) => {
-      const w = weights[critId] ?? 0;
+      // Pastikan bobot juga dihitung murni sebagai angka
+      const w = Number(weights[critId]) || 0;
       const r = normalizedMatrix[altId]?.[critId] ?? 0;
       return sum + w * r;
     }, 0);

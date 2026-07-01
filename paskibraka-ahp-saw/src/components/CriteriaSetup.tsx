@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { Criterion, CriterionConfig } from '../types';
+import api from '../utils/api'; // Pastikan file axios ini sudah Anda buat sesuai instruksi sebelumnya
 
 interface CriteriaSetupProps {
   criteria: Criterion[];
@@ -16,28 +17,124 @@ const CriteriaSetup: React.FC<CriteriaSetupProps> = ({
   onCriteriaConfigChange,
   onNext,
 }) => {
-  const addCriterion = () => {
-    const newId = `C${criteria.length + 1}`;
-    onCriteriaChange([...criteria, { id: newId, name: '', weight: 0 }]);
-    onCriteriaConfigChange([...criteriaConfig, { id: newId, name: '', type: 'benefit' }]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+// INJEKSI BACKEND: Menarik data kriteria dari MySQL saat komponen dimuat
+  useEffect(() => {
+    const fetchKriteria = async () => {
+      try {
+        const response = await api.get('/kriteria');
+        const dbData = response.data.data;
+
+        // Memetakan data dari database ke format yang dikenali UI
+        const loadedCriteria: Criterion[] = dbData.map((item: any) => ({
+          id: item.kode,
+          name: item.nama,
+          weight: item.bobot_ahp
+        }));
+
+        const loadedConfig: CriterionConfig[] = dbData.map((item: any) => ({
+          id: item.kode,
+          name: item.nama,
+          type: item.tipe.toLowerCase() as 'benefit' | 'cost'
+        }));
+
+        // EKSEKUSI MUTLAK: Timpa apapun state bawaan dengan data dari database
+        onCriteriaChange(loadedCriteria);
+        onCriteriaConfigChange(loadedConfig);
+      } catch (error) {
+        console.error("Gagal mengambil data dari database:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    // Panggil tanpa syarat
+    fetchKriteria();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Array kosong sudah cukup untuk mencegah infinite loop
+
+  // 1. Tambahkan fungsi untuk memuat ulang data dari database
+  const loadKriteria = async () => {
+    try {
+      const response = await api.get('/kriteria');
+      const dbData = response.data.data;
+      
+      onCriteriaChange(dbData.map((item: any) => ({ 
+        id: item.kode, 
+        name: item.nama, 
+        weight: item.bobot_ahp 
+      })));
+      onCriteriaConfigChange(dbData.map((item: any) => ({ 
+        id: item.kode, 
+        name: item.nama, 
+        type: item.tipe.toLowerCase() as 'benefit' | 'cost'
+      })));
+    } catch (err) {
+      console.error("Gagal memuat ulang data:", err);
+    }
   };
 
-  const removeCriterion = (id: string) => {
+  // 2. Gunakan loadKriteria setelah API berhasil dipanggil
+  const addCriterion = async () => {
+    // 1. Ambil semua angka dari ID yang ada (misal 'C1', 'C2' -> [1, 2])
+    const ids = criteria.map(c => parseInt(c.id.replace('C', '')));
+    
+    // 2. Cari angka terbesar, lalu tambah 1
+    const maxId = ids.length > 0 ? Math.max(...ids) : 0;
+    const newKode = `C${maxId + 1}`;
+    
+    try {
+      await api.post('/kriteria', { kode: newKode, nama: 'Kriteria Baru', tipe: 'benefit' });
+      await loadKriteria(); 
+    } catch (err) {
+      alert("Gagal menambah kriteria");
+    }
+};
+
+  const removeCriterion = async (id: string) => {
     if (criteria.length <= 2) { alert('Minimal harus ada 2 kriteria.'); return; }
-    onCriteriaChange(criteria.filter((c) => c.id !== id));
-    onCriteriaConfigChange(criteriaConfig.filter((c) => c.id !== id));
+    try {
+      await api.delete(`/kriteria/${id}`);
+      await loadKriteria(); // Refresh data dari DB
+    } catch (err) {
+      alert("Gagal menghapus kriteria di database");
+    }
   };
 
-  const updateName = (id: string, name: string) => {
-    onCriteriaChange(criteria.map((c) => (c.id === id ? { ...c, name } : c)));
-    onCriteriaConfigChange(criteriaConfig.map((c) => (c.id === id ? { ...c, name } : c)));
-  };
+  const updateName = async (id: string, name: string) => {
+    try {
+        // Update di database
+        await api.put(`/kriteria/${id}`, { nama: name });
+        // Update state lokal agar UI berubah seketika
+        onCriteriaChange(criteria.map((c) => (c.id === id ? { ...c, name } : c)));
+        onCriteriaConfigChange(criteriaConfig.map((c) => (c.id === id ? { ...c, name } : c)));
+    } catch (err) {
+        alert("Gagal menyimpan perubahan nama");
+    }
+};
 
-  const updateType = (id: string, type: 'benefit' | 'cost') => {
-    onCriteriaConfigChange(criteriaConfig.map((c) => (c.id === id ? { ...c, type } : c)));
-  };
+  const updateType = async (id: string, type: 'benefit' | 'cost') => {
+    try {
+        // Update di database
+        await api.put(`/kriteria/${id}`, { tipe: type });
+        // Update di state agar UI berubah instan
+        onCriteriaConfigChange(criteriaConfig.map((c) => (c.id === id ? { ...c, type } : c)));
+    } catch (err) {
+        alert("Gagal menyimpan perubahan tipe");
+    }
+};
 
   const canProceed = criteria.every((c) => c.name.trim() !== '');
+
+  // Tampilkan pesan loading jika sedang mengambil data dari server
+  if (isLoading) {
+    return (
+      <div className="p-8 flex justify-center items-center h-64 text-gray-500 font-semibold">
+        Mengambil data kriteria dari server...
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 flex flex-col gap-6">
@@ -78,7 +175,6 @@ const CriteriaSetup: React.FC<CriteriaSetupProps> = ({
                       onChange={(e) => updateName(crit.id, e.target.value)}
                       placeholder="Nama kriteria..."
                       className="w-full min-w-[180px] px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition"
-                      aria-label={`Nama kriteria ${crit.id}`}
                     />
                   </td>
                   <td className="px-4 py-3">
@@ -86,7 +182,6 @@ const CriteriaSetup: React.FC<CriteriaSetupProps> = ({
                       value={config?.type ?? 'benefit'}
                       onChange={(e) => updateType(crit.id, e.target.value as 'benefit' | 'cost')}
                       className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer transition"
-                      aria-label={`Tipe kriteria ${crit.id}`}
                     >
                       <option value="benefit">✅ Benefit</option>
                       <option value="cost">❌ Cost</option>

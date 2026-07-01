@@ -26,7 +26,7 @@ export interface AHPResult {
 }
 
 export interface SAWResult {
-  normalizedMatrix: Record<string, Record<string, number>>; // altId -> critId -> value
+  normalizedMatrix?: Record<string, Record<string, number>>; // altId -> critId -> value
   rankings: RankingEntry[];
 }
 

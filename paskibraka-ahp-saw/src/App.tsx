@@ -7,7 +7,6 @@ import {
   defaultAlternatives,
   defaultCriteria,
   defaultCriteriaConfig,
-  defaultPairwiseMatrix,
 } from './data/defaultData';
 import StepIndicator from './components/StepIndicator';
 import CriteriaSetup from './components/CriteriaSetup';
@@ -15,6 +14,7 @@ import AHPMatrix from './components/AHPMatrix';
 import AlternativesInput from './components/AlternativesInput';
 import Results from './components/Results';
 import LoginPage from './components/LoginPage';
+import { getDefaultPairwiseMatrix } from './data/defaultData';
 
 const STEPS = [
   { label: 'Kriteria', description: 'Setup kriteria' },
@@ -28,10 +28,11 @@ function App() {
   const [currentStep, setCurrentStep] = useState(1);
   const [criteria, setCriteria] = useState<Criterion[]>(defaultCriteria);
   const [criteriaConfig, setCriteriaConfig] = useState<CriterionConfig[]>(defaultCriteriaConfig);
-  const [pairwiseMatrix, setPairwiseMatrix] = useState<AHPPairwiseMatrix>(defaultPairwiseMatrix);
   const [alternatives, setAlternatives] = useState<Alternative[]>(defaultAlternatives);
   const [ahpResult, setAhpResult] = useState<AHPResult | null>(null);
   const [sawResult, setSawResult] = useState<SAWResult | null>(null);
+  const [pairwiseMatrix, setPairwiseMatrix] = useState<AHPPairwiseMatrix>(() => getDefaultPairwiseMatrix()
+);
 
   // Recalculate AHP whenever matrix or criteria change
   useEffect(() => {
@@ -59,7 +60,7 @@ function App() {
   const handleReset = () => {
     setCriteria(defaultCriteria);
     setCriteriaConfig(defaultCriteriaConfig);
-    setPairwiseMatrix(defaultPairwiseMatrix);
+    setPairwiseMatrix(getDefaultPairwiseMatrix());
     setAlternatives(defaultAlternatives);
     setAhpResult(null);
     setSawResult(null);
@@ -156,19 +157,29 @@ function App() {
                   onAlternativesChange={setAlternatives}
                   onBack={() => setCurrentStep(2)}
                   onNext={() => setCurrentStep(4)}
+                  setAhpResult={setAhpResult}
+                  setSawResult={setSawResult}
                 />
               )}
-              {currentStep === 4 && ahpResult && sawResult && (
+              {/* Ganti baris {currentStep === 4 && ahpResult && sawResult && ( ... */}
+              {currentStep === 4 && sawResult && (
                 <Results
                   criteria={criteria}
                   criteriaConfig={criteriaConfig}
-                  ahpResult={ahpResult}
+                  // Jika ahpResult null, kirim objek kosong agar tidak error
+                  ahpResult={ahpResult ?? { 
+                    weights: {}, consistencyIndex: 0, consistencyRatio: 0, 
+                    lambdaMax: 0, normalizedMatrix: {}, isConsistent: true 
+                  }} 
                   sawResult={sawResult}
                   onBack={() => setCurrentStep(3)}
                   onReset={handleReset}
+                  setAhpResult={setAhpResult}
+                  setSawResult={setSawResult}
                 />
               )}
-              {currentStep === 4 && (!ahpResult || !sawResult) && (
+              {/* HANYA tampilkan loading jika sawResult benar-benar belum ada */}
+              {currentStep === 4 && !sawResult && (
                 <div className="p-12 text-center">
                   <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mb-4" />
                   <p className="text-gray-500">Menghitung hasil...</p>
